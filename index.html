@@ -67,9 +67,16 @@ h1{font:300 34px/1.1 var(--sans);letter-spacing:-.01em;margin:2px 0 4px}
   <button data-t="breaking" class="on">Breaking</button>
   <button data-t="top">Top</button>
   <button data-t="daily">Daily</button>
+  <button data-t="social">Social</button>
   <button data-t="keywords">Keywords</button>
   <button data-t="match">Coin match</button>
   <button data-t="sources">Sources</button>
+</div>
+<div class="filters" id="socialFilters" style="display:none">
+  <select id="sWindow"><option value="day">Today</option><option value="week">This week</option><option value="month">This month</option><option value="all">All time</option></select>
+  <select id="sPlatform"><option value="">All platforms</option></select>
+  <select id="sCat"><option value="">All categories</option></select>
+  <input id="sQ" placeholder="Search posts…">
 </div>
 <div class="filters" id="filters">
   <select id="fTopic"><option value="">All topics</option></select>
@@ -102,6 +109,7 @@ $('tabs').addEventListener('click', e => {
   document.querySelectorAll('#tabs button').forEach(x => x.classList.remove('on'));
   b.classList.add('on'); tab = b.dataset.t;
   $('filters').style.display = (tab==='breaking'||tab==='top') ? 'flex' : 'none';
+  $('socialFilters').style.display = tab==='social' ? 'flex' : 'none';
   $('matchBox').style.display = tab==='match' ? 'flex' : 'none';
   load();
 });
@@ -126,6 +134,7 @@ async function load() {
     if (tab === 'breaking') return loadBreaking();
     if (tab === 'top') return loadTop();
     if (tab === 'daily') return loadDaily();
+    if (tab === 'social') return loadSocial();
     if (tab === 'keywords') return loadKeywords();
     if (tab === 'match') return loadMatch();
     if (tab === 'sources') return loadSources();
@@ -230,6 +239,41 @@ async function loadSources() {
     `<div class="card" style="cursor:default"><div class="head"><h3>${esc(name)}</h3>
      <span class="score" style="color:${s.ok?'var(--green)':'var(--red)'}">${s.ok?'OK':'DOWN'}</span></div>
      <div class="meta"><span>${s.items||0} items</span><span>${s.err?esc(s.err):'http '+ (s.httpStatus||'?')}</span><span>${s.ms||0}ms</span><span>${s.ts?ago(s.ts):''}</span></div></div>`).join('');
+}
+
+['sWindow','sPlatform','sCat'].forEach(id => $(id).addEventListener('change', loadSocial));
+let sQT; $('sQ').addEventListener('input', () => { clearTimeout(sQT); sQT = setTimeout(loadSocial, 400); });
+
+async function loadSocialMeta() {
+  try {
+    const r = await fetch(`${API}/api/posts/meta`);
+    const d = await r.json();
+    const plats = Object.keys(d.platforms || {});
+    $('sPlatform').innerHTML = '<option value="">All platforms</option>' + plats.map(p => `<option>${esc(p)}</option>`).join('');
+    $('sCat').innerHTML = '<option value="">All categories</option>' + (d.categories||[]).map(c => `<option value="${esc(c.name)}">${esc(c.name)} (${c.count})</option>`).join('');
+  } catch {}
+}
+
+async function loadSocial() {
+  if (!$('sPlatform').options.length || $('sPlatform').options.length <= 1) await loadSocialMeta();
+  const p = new URLSearchParams({ window: $('sWindow').value, limit: 50 });
+  if ($('sPlatform').value) p.set('platform', $('sPlatform').value);
+  if ($('sCat').value) p.set('category', $('sCat').value);
+  if ($('sQ').value.trim()) p.set('q', $('sQ').value.trim());
+  $('list').innerHTML = '<div class="empty">Loading…</div>';
+  const r = await fetch(`${API}/api/posts?${p}`);
+  const d = await r.json();
+  const posts = d.posts || [];
+  $('list').innerHTML = posts.length ? posts.map(x => {
+    const v = x.viral || 0;
+    const hot = v >= 70 ? ' hot' : '';
+    return `<div class="card" style="cursor:default">
+      <div class="head"><h3>${esc(x.title)}</h3><span class="score${hot}">${v.toFixed(0)}</span></div>
+      <div class="meta"><span class="tag">${esc(x.platform||'')}</span><span>${esc(x.community||'')}</span><span>${esc(x.author||'')}</span><span>${(x.points||0).toLocaleString()} pts</span><span>${x.createdAt?ago(x.createdAt):''}</span></div>
+      <div class="meta"><span class="tag">${(x.categories||[]).join(' · ')}</span>${x.url?`<a href="${esc(x.url)}" target="_blank" rel="noopener" style="color:var(--blue)">open →</a>`:''}</div>
+    </div>`;
+  }).join('') : '<div class="empty">No posts yet — sources may still be collecting.</div>';
+  timer = setInterval(loadSocial, 120000);
 }
 
 async function health() {
